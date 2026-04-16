@@ -34,6 +34,9 @@ jobs:
       actions: write # trigger workflow_dispatch on publish.yaml
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
       - name: Action | Dispatch publish workflow
         uses: ./.github/actions/dispatch
         with:
