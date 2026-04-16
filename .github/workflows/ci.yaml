@@ -41,5 +41,6 @@ jobs:
         uses: ./.github/actions/dispatch
         with:
           workflow: publish.yaml
-          ref: ${{ needs.release.outputs.tag }}
+          ref: ${{ github.ref }}
+          tag: ${{ needs.release.outputs.tag }}
           provenance: true
