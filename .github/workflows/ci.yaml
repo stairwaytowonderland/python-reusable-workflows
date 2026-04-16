@@ -37,7 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Action | Dispatch publish workflow
-        uses: ./.github/actions/dispatch
+        uses: ./.github/actions/dispatch-workflow
         with:
           workflow: publish.yaml
           tag: ${{ needs.release.outputs.tag }}
