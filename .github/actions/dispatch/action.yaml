@@ -14,10 +14,6 @@ inputs:
   workflow:
     description: "Workflow file to dispatch (e.g. publish.yaml)"
     required: true
-  ref:
-    description: "Git ref (branch, tag, or SHA) to run the workflow on"
-    required: false
-    default: ${{ github.ref }}
   tag:
     description: "Tag associated with the workflow dispatch event"
     required: false
@@ -78,7 +74,7 @@ runs:
         GH_TOKEN: ${{ inputs.token }}
         WORKFLOW: ${{ inputs.workflow }}
         REPOSITORY: ${{ inputs.repository }}
-        REF: ${{ inputs.ref }}
+        REF: ${{ github.ref }}
         TAG: ${{ inputs.tag }}
         PROVENANCE: ${{ inputs.provenance }}
         PYTHON_VERSION: ${{ inputs.python-version }}
