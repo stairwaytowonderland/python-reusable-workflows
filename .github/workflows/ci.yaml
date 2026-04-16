@@ -3,8 +3,8 @@ name: CI
 on:
   workflow_run:
     workflows: ['Pre-commit', 'Test']
-    types:
-      - completed
+    branches: [main]
+    types: [completed]
 
 permissions:
   contents: read
