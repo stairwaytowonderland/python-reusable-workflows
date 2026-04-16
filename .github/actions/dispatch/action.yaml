@@ -1,0 +1,68 @@
+# Dispatch a workflow via workflow_dispatch.
+#
+# Wraps `gh workflow run` so callers only need to supply the workflow file,
+# the target ref, and optional flags. The ref is also passed as the tag field.
+#
+# GITHUB_TOKEN can trigger workflow_dispatch — this is an explicit exception
+# to GitHub's rule that GITHUB_TOKEN cannot trigger workflows.
+# https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication#using-the-github_token-in-a-workflow
+
+name: Dispatch workflow
+description: Trigger a workflow_dispatch event on a target workflow file.
+
+inputs:
+  workflow:
+    description: "Workflow file to dispatch (e.g. publish.yaml)"
+    required: true
+  ref:
+    description: "Git ref (branch, tag, or SHA) to run the workflow on"
+    required: true
+  repository:
+    description: "Owner/repo to dispatch against. Defaults to the current repository."
+    required: false
+    default: ${{ github.repository }}
+  provenance:
+    description: "Whether to generate a SLSA build provenance attestation."
+    required: false
+    default: "false"
+  fields:
+    description: |
+      Newline-separated list of additional key=value pairs passed as --field arguments.
+      Example:
+        extra-key=extra-value
+    required: false
+    default: ""
+  token:
+    description: "GitHub token with actions:write permission"
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Dispatch ${{ inputs.workflow }}
+      shell: bash
+      run: |
+        field=()
+        field+=(--field tag="$REF")
+        field+=(--field provenance="$PROVENANCE")
+
+        # Append any extra fields from the fields input
+        while IFS= read -r line; do
+          line="${line## }"
+          line="${line%% }"
+          [ -n "$line" ] || continue
+          field+=(--field "$line")
+        done <<< "$FIELDS"
+
+        gh workflow run "$WORKFLOW" \
+          --repo "$REPOSITORY" \
+          --ref  "$REF" \
+          "${field[@]}"
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        WORKFLOW: ${{ inputs.workflow }}
+        REPOSITORY: ${{ inputs.repository }}
+        REF: ${{ inputs.ref }}
+        PROVENANCE: ${{ inputs.provenance }}
+        FIELDS: ${{ inputs.fields }}
