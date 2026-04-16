@@ -16,7 +16,8 @@ inputs:
     required: true
   ref:
     description: "Git ref (branch, tag, or SHA) to run the workflow on"
-    required: true
+    required: false
+    default: ${{ github.ref }}
   tag:
     description: "Tag associated with the workflow dispatch event"
     required: false
