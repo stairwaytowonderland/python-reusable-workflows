@@ -1,4 +1,5 @@
 """Tests for sample_app.cli."""
+
 from sample_app.cli import main
 
 
