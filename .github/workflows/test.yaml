@@ -29,14 +29,16 @@ jobs:
       python-versions: ${{ steps.set-matrix.outputs.python-versions }}
       python-version-count: ${{ steps.set-matrix.outputs.python-version-count }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Action | Prepare matrix
+      - name: Set Python version matrix
         id: set-matrix
-        uses: ./.github/actions/prepare-matrix
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
+        env:
+          DEFAULT_VERSIONS: ${{ env.PYTHON_VERSION }}
+          INPUT_VERSIONS: ${{ inputs.python-version }}
+        run: |
+          raw="${INPUT_VERSIONS:-$DEFAULT_VERSIONS}"
+          json=$(echo "$raw" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | jq -Rc '[.,inputs]' | jq -sc 'add')
+          echo "python-versions=$json" >> "$GITHUB_OUTPUT"
+          echo "python-version-count=$(echo "$json" | jq 'length')" >> "$GITHUB_OUTPUT"
 
   test-matrix:
     name: Run matrix tests
