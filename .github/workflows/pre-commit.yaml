@@ -18,5 +18,4 @@ jobs:
       - uses: pre-commit/action@v3.0.1
         with:
           extra_args: |
-            --all-files
-            -c .pre-commit-ci.yaml
+            --all-files -c .pre-commit-ci.yaml
