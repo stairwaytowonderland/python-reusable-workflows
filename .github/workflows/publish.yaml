@@ -98,10 +98,6 @@ on:
         type: boolean
         default: false
 
-# Default to least-privileged permissions; individual jobs override as needed.
-permissions:
-  contents: read
-
 env:
   PYTHON_VERSION: ${{ inputs.python-version || '3.12' }} # override via python-version input
   DEFAULT_POETRY_VERSION: ${{ inputs.poetry-version || 'latest' }} # CAUTION: Don't collide with actual "POETRY_VERSION" env var; override via poetry-version input

@@ -10,10 +10,6 @@
 name: Release
 
 on:
-  # push:
-  #   branches:
-  #     - main
-
   # Manual trigger — run PSR directly from the Actions UI.
   # Use force-bump to override commit analysis and force a specific bump level.
   workflow_dispatch:
