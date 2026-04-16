@@ -21,7 +21,7 @@ inputs:
   tag:
     description: "Tag associated with the workflow dispatch event"
     required: false
-    default: ""
+    default: ${{ github.ref }}
   repository:
     description: "Owner/repo to dispatch against. Defaults to the current repository."
     required: false
