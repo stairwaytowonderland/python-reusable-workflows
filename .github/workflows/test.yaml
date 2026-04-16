@@ -19,7 +19,7 @@ on:
         default: ''
 
 env:
-  PYTHON_VERSION: '3.12' # override via python-version input or matrix in caller workflow
+  PYTHON_VERSION: ${{ inputs.python-version || '3.12' }} # override via python-version input or matrix in caller workflow
 
 jobs:
   prepare-matrix:
@@ -36,7 +36,7 @@ jobs:
         id: set-matrix
         uses: ./.github/actions/prepare-matrix
         with:
-          python-version: ${{ inputs.python-version || env.PYTHON_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
 
   test-matrix:
     name: Run matrix tests
@@ -58,8 +58,8 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install pytest pytest-cov pytest-mock pytest-emoji
-          if [ -n "${{ inputs.requirements }}" ]; then
-            pip install -r ${{ inputs.requirements }}
+          if [ -n "$REQUIREMENTS" ]; then
+            pip install -r $REQUIREMENTS
           else
             pip install ".[test]" || true
           fi

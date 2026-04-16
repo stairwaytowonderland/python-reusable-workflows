@@ -4,7 +4,23 @@ on:
   push:
     branches: ['**']
   workflow_dispatch:
+    inputs:
+      config:
+        description: 'Path to the pre-commit config file.'
+        type: string
+        required: false
+        default: '.pre-commit-config.yaml'
+
   workflow_call:
+    inputs:
+      config:
+        description: 'Path to the pre-commit config file.'
+        type: string
+        required: false
+        default: '.pre-commit-config.yaml'
+
+env:
+  PRE_COMMIT_CONFIG: ${{ inputs.config || '.pre-commit-ci.yaml' }}
 
 jobs:
   pre-commit:
@@ -18,4 +34,4 @@ jobs:
       - uses: pre-commit/action@v3.0.1
         with:
           extra_args: |
-            --all-files -c .pre-commit-ci.yaml
+            --all-files -c "$PRE_COMMIT_CONFIG"
