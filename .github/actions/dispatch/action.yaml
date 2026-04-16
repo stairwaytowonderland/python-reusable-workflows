@@ -25,6 +25,14 @@ inputs:
     description: "Whether to generate a SLSA build provenance attestation."
     required: false
     default: "false"
+  python-version:
+    description: "Python version to use for building and publishing (e.g. 3.12)."
+    required: false
+    default: ""
+  requirements:
+    description: "Path to a requirements.txt file to install before building. Leave empty to use Poetry."
+    required: false
+    default: ""
   fields:
     description: |
       Newline-separated list of additional key=value pairs passed as --field arguments.
@@ -46,6 +54,8 @@ runs:
         field=()
         field+=(--field tag="$REF")
         field+=(--field provenance="$PROVENANCE")
+        [ -z "$PYTHON_VERSION" ] || field+=(--field python-version="$PYTHON_VERSION")
+        [ -z "$REQUIREMENTS" ]   || field+=(--field requirements="$REQUIREMENTS")
 
         # Append any extra fields from the fields input
         while IFS= read -r line; do
@@ -65,4 +75,6 @@ runs:
         REPOSITORY: ${{ inputs.repository }}
         REF: ${{ inputs.ref }}
         PROVENANCE: ${{ inputs.provenance }}
+        PYTHON_VERSION: ${{ inputs.python-version }}
+        REQUIREMENTS: ${{ inputs.requirements }}
         FIELDS: ${{ inputs.fields }}
