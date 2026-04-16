@@ -68,13 +68,12 @@ runs:
 
         gh workflow run "$WORKFLOW" \
           --repo "$REPOSITORY" \
-          --ref  "$REF" \
+          --ref "$TAG" \
           "${field[@]}"
       env:
         GH_TOKEN: ${{ inputs.token }}
         WORKFLOW: ${{ inputs.workflow }}
         REPOSITORY: ${{ inputs.repository }}
-        REF: ${{ github.ref }}
         TAG: ${{ inputs.tag }}
         PROVENANCE: ${{ inputs.provenance }}
         PYTHON_VERSION: ${{ inputs.python-version }}
