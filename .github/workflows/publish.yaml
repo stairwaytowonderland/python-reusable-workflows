@@ -1,0 +1,349 @@
+# Continuous Delivery — Build & Publish
+#
+# Triggered by:
+#   push: tags:       — a tag matching v* is pushed with personal credentials
+#   workflow_dispatch — manual run or dispatch from release.yaml
+#   workflow_call     — called directly from a caller workflow via needs:
+#
+# Dependency installation:
+#   requirements unset (default) → Poetry (snok/install-poetry + poetry install)
+#   requirements set             → pip   (pip install -r <file>)
+# Both paths then build with: pip install build && python -m build
+#
+# Jobs:
+#   package — checkout the tag, install deps, build wheel + sdist, store as workflow artifact
+#   publish — download artifact, upload to GitHub Release assets
+#   deploy  — (disabled) download artifact, publish to PyPI via OIDC trusted publishing
+#
+# Flow: package → publish → deploy
+#
+# References:
+#   https://docs.pypi.org/trusted-publishers/
+
+name: Publish
+
+on:
+  # Fires when a tag matching v* is pushed with personal credentials.
+  # Note: tags created by GITHUB_TOKEN (e.g. by PSR in release.yaml) do NOT
+  # trigger this — GitHub blocks token-authored pushes from triggering workflows.
+  # Those are handled instead via workflow_dispatch (direct use) or workflow_call
+  # outputs chained via needs: (reusable use).
+  push:
+    tags:
+      - 'v*'
+
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build and publish (e.g. v1.2.3)'
+        required: true
+        type: string
+      python-version:
+        description: 'Python version to use for building and publishing'
+        required: false
+        type: string
+        default: '3.12'
+      poetry-version:
+        description: 'Poetry version to install (e.g. 1.8.5). Defaults to latest.'
+        required: false
+        type: string
+        default: 'latest'
+      requirements:
+        description: 'Path to a requirements.txt file to install before building (e.g. requirements.txt). Leave empty (default) to use Poetry instead.'
+        required: false
+        type: string
+        default: ''
+      poetry-as-fallback:
+        description: 'Whether to fall back to Poetry if the requirements is missing or empty.'
+        required: false
+        type: boolean
+        default: true
+      provenance:
+        description: 'Whether to generate a SLSA build provenance attestation. Requires OIDC support (GitHub-hosted runner or self-hosted with OIDC). Leave empty (default) to fall back to the PROVENANCE env var.'
+        required: false
+        type: boolean
+        default: false
+
+  # Allow other pipelines to call this workflow as a reusable workflow.
+  # https://docs.github.com/en/actions/sharing-automations/reusing-workflows
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Release tag to build and publish (e.g. v1.2.3)'
+        required: true
+        type: string
+      python-version:
+        description: 'Python version to use for building and publishing'
+        required: false
+        type: string
+        default: '3.12'
+      poetry-version:
+        description: 'Poetry version to install (e.g. 1.8.5). Defaults to latest.'
+        required: false
+        type: string
+        default: 'latest'
+      requirements:
+        description: 'Path to a requirements.txt file to install before building (e.g. requirements.txt). Leave empty (default) to use Poetry instead.'
+        required: false
+        type: string
+        default: ''
+      poetry-as-fallback:
+        description: 'Whether to fall back to Poetry if the requirements is missing or empty.'
+        required: false
+        type: boolean
+        default: false
+      provenance:
+        description: 'Whether to generate a SLSA build provenance attestation. Requires OIDC support (GitHub-hosted runner or self-hosted with OIDC). Leave empty (default) to fall back to the PROVENANCE env var.'
+        required: false
+        type: boolean
+        default: false
+
+# Default to least-privileged permissions; individual jobs override as needed.
+permissions:
+  contents: read
+
+env:
+  DEFAULT_PYTHON_VERSION: '3.12' # override via python-version input
+  DEFAULT_POETRY_VERSION: 'latest' # override via poetry-version input
+  PROVENANCE: 'true' # override via provenance input
+
+jobs:
+  # -------------------------------------------------------------------------- #
+  # Package                                                                    #
+  # Checks out the tag, builds the wheel and sdist with setuptools-scm         #
+  # (which reads the tag for the version), generates a SLSA provenance         #
+  # attestation, and stores the artifacts.                                     #
+  # -------------------------------------------------------------------------- #
+  package:
+    name: Build
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read # checkout only — artifacts are stored via upload-artifact, not git
+      id-token: write # required by actions/attest-build-provenance for OIDC signing
+      attestations: write # required by actions/attest-build-provenance to persist the attestation
+
+    outputs:
+      tag: ${{ steps.vars.outputs.tag }}
+
+    steps:
+      # Resolve the tag from whichever trigger fired:
+      #   push: tags                        → github.ref_name  (e.g. v1.2.3)
+      #   workflow_dispatch / workflow_call → inputs.tag
+      - name: Setup | Resolve tag
+        id: vars
+        run: echo "tag=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      # Checkout at the input tag so setuptools-scm sees it and stamps the
+      # correct version into the wheel metadata.
+      - name: Setup | Checkout release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.vars.outputs.tag }}
+          fetch-depth: 0
+
+      # Normalize poetry-as-fallback into a single 'use-poetry' output.
+      # poetry-as-fallback arrives as different types depending on the trigger:
+      #   push:tags         → inputs are absent → interpolates as '' (empty string)
+      #   workflow_dispatch → boolean inputs are serialised as strings: 'true' / 'false'
+      #   workflow_call     → boolean inputs are typed booleans, but ${{ }} always
+      #                        coerces them to strings before handing to the shell,
+      #                        so they also arrive as 'true' / 'false'
+      # Result: only the literal string 'false' means "do not use Poetry";
+      # everything else ('' or 'true') means "use Poetry".
+      - name: Setup | Configure build options
+        id: config
+        run: |
+          if [[ "${{ inputs.poetry-as-fallback }}" != "true" ]]; then
+            echo "use-poetry=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "use-poetry=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ -n "${{ inputs.requirements }}" ]]; then
+            echo "use-requirements=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "use-requirements=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # --- Poetry path (requirements is empty, use-poetry is true) ---
+      # Poetry manages its own virtualenv cache via the Cache Poetry virtualenv step below.
+      - name: Setup | Python (Poetry)
+        if: steps.config.outputs.use-requirements == 'false' && steps.config.outputs.use-poetry == 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version || env.DEFAULT_PYTHON_VERSION }}
+
+      - name: Setup | Install Poetry
+        if: steps.config.outputs.use-requirements == 'false' && steps.config.outputs.use-poetry == 'true'
+        uses: snok/install-poetry@v1
+        with:
+          version: ${{ inputs.poetry-version || env.DEFAULT_POETRY_VERSION }}
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Setup | Cache Poetry virtualenv
+        if: steps.config.outputs.use-requirements == 'false' && steps.config.outputs.use-poetry == 'true'
+        uses: actions/cache@v5
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py${{ inputs.python-version || env.DEFAULT_PYTHON_VERSION }}-poetry${{ inputs.poetry-version || env.DEFAULT_POETRY_VERSION }}-${{ hashFiles('poetry.lock') }}
+
+      - name: Build | Install dependencies (Poetry)
+        if: steps.config.outputs.use-requirements == 'false' && steps.config.outputs.use-poetry == 'true'
+        run: poetry lock && poetry install --no-interaction
+
+      # --- pip path (requirements is set) ---------------------------------
+      # Use setup-python's built-in pip cache so ~/.cache/pip is restored across runs.
+      - name: Setup | Python (pip)
+        if: steps.config.outputs.use-requirements == 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version || env.DEFAULT_PYTHON_VERSION }}
+          cache: 'pip'
+
+      # --- no-deps path (requirements is empty, use-poetry is false) ---
+      # No dependency installation — caller is responsible for pre-installing deps,
+      # or the package has no runtime deps beyond the build frontend.
+      - name: Setup | Python (no deps)
+        if: steps.config.outputs.use-requirements == 'false' && steps.config.outputs.use-poetry == 'false'
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python-version || env.DEFAULT_PYTHON_VERSION }}
+
+      - name: Build | Install dependencies (pip)
+        if: steps.config.outputs.use-requirements == 'true'
+        run: |
+          if [ -f "${{ inputs.requirements }}" ]; then
+            pip install -r ${{ inputs.requirements }}
+          else
+            pip install ${{ inputs.requirements }}
+          fi
+
+      # -------------------------------------------------------------------------
+      - name: Build | Install build frontend
+        run: pip install build
+
+      # setuptools-scm reads the checked-out tag and stamps the version into
+      # the wheel metadata automatically.
+      - name: Build | Build wheel and sdist
+        run: python -m build
+
+      - name: Setup | Resolve provenance
+        id: provenance
+        run: |
+          if [[ -z "${{ inputs.provenance }}" ]]; then
+            echo "enabled=${{ env.PROVENANCE }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=${{ inputs.provenance }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Generate a SLSA build provenance attestation for the wheel and sdist.
+      # The attestation is signed using OIDC and stored in the GitHub
+      # attestations API. Consumers can verify with:
+      #   gh attestation verify <file> --repo <owner>/<repo>
+      # https://github.com/actions/attest-build-provenance
+      # IMPORTANT: id-token: write requires a GitHub-hosted runner (or a self-hosted
+      # runner configured with OIDC support). On runners without OIDC, this step
+      # will fail. Using "runner.environment == 'github-hosted'" to restrict
+      # to GitHub-hosted runners.
+      - name: Attest | Generate build provenance
+        if: runner.environment == 'github-hosted' && steps.provenance.outputs.enabled == 'true'
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/
+
+      # Upload for downstream jobs (publish, deploy).
+      - name: Artifact | Store dist/
+        uses: actions/upload-artifact@v7
+        with:
+          name: sdist-${{ steps.vars.outputs.tag }}
+          path: dist/
+          if-no-files-found: error
+
+  # -------------------------------------------------------------------------- #
+  # Publish                                                                     #
+  # Downloads the built artifacts and uploads them to the GitHub Release.      #
+  # -------------------------------------------------------------------------- #
+  publish:
+    name: Publish to GitHub Release
+    runs-on: ubuntu-latest
+    needs: package
+
+    permissions:
+      contents: write # upload artifacts to GitHub Release
+
+    steps:
+      # Checkout the default branch (not the tag) so PSR publish-action sees an
+      # attached HEAD and can match it against the release branch config.
+      # fetch-depth: 0 ensures the input tag is available locally.
+      # - name: Setup | Checkout repository
+      #   uses: actions/checkout@v6
+      #   with:
+      #     ref: ${{ github.event.repository.default_branch }}
+      #     fetch-depth: 0
+
+      - name: Setup | Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: sdist-${{ needs.package.outputs.tag }}
+          path: dist/
+
+      # - name: Publish | Upload dist/ to GitHub Release
+      #   uses: python-semantic-release/publish-action@v10.5.3
+      #   with:
+      #     github_token: ${{ secrets.GITHUB_TOKEN }}
+      #     tag: ${{ needs.package.outputs.tag }}
+
+      - name: Publish | Create GitHub Release and upload assets
+        run: |
+          gh release create ${{ needs.package.outputs.tag }} dist/* \
+            --repo ${{ github.repository }} \
+            --title ${{ needs.package.outputs.tag }} \
+            --generate-notes \
+            --verify-tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # -------------------------------------------------------------------------- #
+  # Deploy to PyPI                                                             #
+  # -------------------------------------------------------------------------- #
+  # Runs in a separate job so it uses minimal permissions and can be retried   #
+  # independently if PyPI is temporarily unavailable.                          #
+  #                                                                            #
+  # Prerequisites — configure a PyPI Trusted Publisher (one-time setup):       #
+  #   https://docs.pypi.org/trusted-publishers/adding-a-publisher/             #
+  #   Publisher settings:                                                      #
+  #     PyPI project name : sample-app                                         #
+  #     Owner             : <your-github-org-or-username>                      #
+  #     Repository        : <your-repo-name>                                   #
+  #     Workflow filename : publish.yaml                                       #
+  #     Environment name  : pypi                                               #
+  # -------------------------------------------------------------------------- #
+  # deploy:
+  #   name: Deploy to PyPI
+  #   runs-on: ubuntu-latest
+  #   needs: publish
+  #
+  #   # PyPI OIDC trusted publishing requires id-token: write.
+  #   # No API token secret is needed after the one-time Trusted Publisher setup.
+  #   permissions:
+  #     contents: read
+  #     id-token: write
+  #
+  #   environment:
+  #     name: pypi
+  #     url: https://pypi.org/project/sample-app/
+  #
+  #   steps:
+  #     - name: Setup | Download build artifacts
+  #       uses: actions/download-artifact@v8
+  #       with:
+  #         name: sdist-${{ needs.package.outputs.tag }}
+  #         path: dist/
+  #
+  #     - name: Publish | Upload to PyPI
+  #       uses: pypa/gh-action-pypi-publish@v1.12.4
+  #       with:
+  #         packages-dir: dist/
+  #         print-hash: true
+  #         verbose: true

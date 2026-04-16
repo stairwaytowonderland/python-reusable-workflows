@@ -1,0 +1,119 @@
+# Continuous Delivery — Semantic Release
+#
+# Triggered on every push to main.
+# Analyzes commits since the last tag, determines the next version, commits
+# the changelog, creates the git tag, and opens the GitHub Release.
+#
+# References:
+#   https://python-semantic-release.readthedocs.io/en/latest/configuration/automatic-releases/github-actions.html
+
+name: Release
+
+on:
+  # push:
+  #   branches:
+  #     - main
+
+  # Manual trigger — run PSR directly from the Actions UI.
+  # Use force-bump to override commit analysis and force a specific bump level.
+  workflow_dispatch:
+    inputs:
+      force-bump:
+        description: "Force a specific version bump. Leave as 'auto' to let PSR determine the next version from commits."
+        required: false
+        type: choice
+        default: auto
+        options:
+          - auto
+          - patch
+          - minor
+          - major
+      config-file:
+        description: 'Path to the PSR config file relative to the repo root (e.g. releaserc.toml or pyproject.toml). Leave empty to use PSR built-in defaults.'
+        required: false
+        type: string
+        default: ''
+
+  # Allow other pipelines to call this workflow as a reusable workflow.
+  # https://docs.github.com/en/actions/sharing-automations/reusing-workflows
+  workflow_call:
+    inputs:
+      config-file:
+        description: |
+          Path to the python-semantic-release config file, relative to the repo root.
+          Accepts a standalone TOML file (e.g. releaserc.toml) or pyproject.toml
+          (PSR reads [tool.semantic_release] from it automatically).
+          The file must exist in the repository — this workflow does not provide a default.
+        required: false
+        type: string
+        default: ''
+    outputs:
+      released:
+        description: "'true' if a new version was released, 'false' otherwise"
+        value: ${{ jobs.release.outputs.released }}
+      tag:
+        description: "The released tag (e.g. v1.2.3); empty string when released is 'false'"
+        value: ${{ jobs.release.outputs.tag }}
+
+# Default to least-privileged permissions; individual jobs override as needed.
+permissions:
+  contents: read
+
+jobs:
+  # -------------------------------------------------------------------------- #
+  # Release                                                                     #
+  # Analyzes commits since the last tag, determines the next version, commits  #
+  # the changelog, creates the git tag, and opens the GitHub Release.          #
+  # -------------------------------------------------------------------------- #
+  release:
+    name: Semantic Release
+    runs-on: ubuntu-latest
+
+    # Prevent a race condition if multiple pushes arrive on main in quick
+    # succession — only one release job runs at a time per branch.
+    concurrency:
+      group: ${{ github.workflow }}-release-${{ github.ref_name }}
+      cancel-in-progress: false
+
+    permissions:
+      contents: write # push commits/tags, create GitHub Releases
+
+    outputs:
+      released: ${{ steps.release.outputs.released || 'false' }}
+      tag: ${{ steps.release.outputs.tag }}
+
+    steps:
+      - name: Setup | Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref_name }}
+          # Fetch full history so PSR can evaluate all commits.
+          fetch-depth: 0
+
+      - name: Setup | Force branch to workflow SHA
+        # Guards against commits landing while this run was queued.
+        run: git reset --hard ${{ github.sha }}
+
+      # - name: Setup | Validate config file
+      #   run: |
+      #     CONFIG_FILE="${{ inputs.config-file }}"
+      #     if [ ! -f "$CONFIG_FILE" ]; then
+      #       echo "::error::$CONFIG_FILE not found. Callers must commit a PSR config file to their repository."
+      #       exit 1
+      #     fi
+
+      - name: Action | Semantic Release
+        id: release
+        uses: python-semantic-release/python-semantic-release@v10.5.3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          config_file: ${{ inputs.config-file || '' }}
+          # Force a specific bump level when set; empty string lets PSR use commit analysis.
+          force: ${{ inputs.force-bump != 'auto' && inputs.force-bump || '' }}
+          build: 'false'
+          vcs_release: 'false'
+          # changelog: "true"  # default
+          # push: "true"       # default
+          # https://python-semantic-release.readthedocs.io/en/latest/configuration/configuration.html#commit-author
+          git_committer_name: 'github-actions'
+          git_committer_email: 'actions@users.noreply.github.com'

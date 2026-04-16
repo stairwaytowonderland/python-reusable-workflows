@@ -1,0 +1,185 @@
+# Guide (user-friendly):
+# https://packaging.python.org/en/latest/guides/writing-pyproject-toml/
+
+# Specification (technical, formal):
+# https://packaging.python.org/en/latest/specifications/pyproject-toml/
+
+# ---------------------------------------------------------------------------- #
+# Build System:
+# ---------------------------------------------------------------------------- #
+
+[build-system]
+# setuptools is chosen for portability: swapping to hatchling later only
+# requires changing this block (use hatchling + hatch-vcs instead).
+requires = ["setuptools>=68", "wheel", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+# ---------------------------------------------------------------------------- #
+# Project (PEP 517/621):
+# ---------------------------------------------------------------------------- #
+
+[project]
+name = "sample-app"
+dynamic = ["version"]   # version is derived from git tags via setuptools-scm at build time
+description = "A sample hello-world app demonstrating Python packaging and automated releases."
+readme = "README.md"
+# license = "MIT"
+# authors = [{ name = "Your Name", email = "you@example.com" }]
+requires-python = ">=3.10,<4"
+keywords = ["cicd", "packaging", "python", "semantic-release"]
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Build Tools",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3 :: Only",
+]
+
+[project.scripts]
+sample-app = "sample_app.cli:main"
+
+# ---------------------------------------------------------------------------- #
+# Package Discovery (setuptools):
+# ---------------------------------------------------------------------------- #
+
+# Tell setuptools where to find packages when using a src/ layout.
+[tool.setuptools.packages.find]
+# where = ["."]
+# include = ["<module_name>*"]
+where = ["src"]
+
+# ---------------------------------------------------------------------------- #
+# Poetry (dependency management only — not the build backend):
+# ---------------------------------------------------------------------------- #
+
+[tool.poetry]
+version = "0.0.0"   # placeholder required by Poetry; ignored at build time (setuptools-scm reads the git tag)
+
+[tool.poetry.dependencies]
+python = ">=3.10,<4"
+
+[tool.poetry.group.dev.dependencies]
+poethepoet = ">=0.33.0"
+black = ">=25.0.0"
+isort = ">=5.13.0"
+autoflake = ">=2.3.0"
+python-semantic-release = ">=10.5.3"
+
+[tool.poetry.group.test.dependencies]
+pytest = ">=8.3.0"
+pytest-cov = ">=6.0.0"
+pytest-mock = ">=3.14.0"
+
+# ---------------------------------------------------------------------------- #
+# Dynamic Versioning (setuptools-scm):
+# ---------------------------------------------------------------------------- #
+
+# https://setuptools-scm.readthedocs.io/en/latest/
+# Reads the version from git tags (e.g. v1.2.3 → 1.2.3) at build time.
+# No file stamping required — any backend that supports PEP 517 dynamic
+# versioning works (swap to hatchling + hatch-vcs with one block change).
+#
+# Future hatchling equivalent:
+#   [build-system]
+#   requires = ["hatchling", "hatch-vcs"]
+#   build-backend = "hatchling.build"
+#   [tool.hatch.version]
+#   source = "vcs"
+[tool.setuptools_scm]
+# Default version scheme handles semver tags (v1.2.3) out of the box.
+# Produces a dev suffix for commits after a tag (e.g. 1.2.3.dev4+gabcdef).
+# Set SETUPTOOLS_SCM_PRETEND_VERSION=x.y.z to override (useful in CI).
+fallback_version = "0.0.0"   # used when there is no .git directory (e.g. building from a tarball)
+
+# ---------------------------------------------------------------------------- #
+# Coverage:
+# ---------------------------------------------------------------------------- #
+
+[tool.coverage.run]
+branch = true
+omit = ["**/__init__.py"]
+source = ["src"]
+
+# ---------------------------------------------------------------------------- #
+# Style:
+# ---------------------------------------------------------------------------- #
+
+[tool.autoflake]
+remove_all_unused_imports = true
+remove_unused_variables = true
+recursive = true
+in-place = true
+
+[tool.isort]
+profile = "black"
+
+[tool.black]
+line-length = 108
+target-version = ["py310", "py311", "py312", "py313", "py314"]
+
+# ---------------------------------------------------------------------------- #
+# Tasks (Poe the Poet):
+# ---------------------------------------------------------------------------- #
+
+[tool.poe.tasks]
+lock    = { cmd = "poetry lock",                                                           help = "Lock dependencies" }
+clean   = { cmd = "rm -rf dist build *.egg-info .coverage htmlcov",                        help = "Remove build/test artifacts" }
+fmt     = { sequence = ["autoflake", "isort", "black"],                                    help = "Format code (autoflake → isort → black)" }
+build   = { cmd = "poetry build",                                                          help = "Build sdist and wheel into dist/" }
+test    = { cmd = "poetry run pytest -v --cov=src --cov-report=term-missing",              help = "Run tests with coverage" }
+last    = { cmd = "semantic-release -c releaserc.toml version --print-last-released-tag",  help = "Print the last released tag" }
+next    = { cmd = "semantic-release -c releaserc.toml version --print-tag",                help = "Print what the next tag would be (dry-run)" }
+release = { cmd = "semantic-release -c releaserc.toml version",                            help = "Cut a local release (tag + changelog + build)" }
+
+[tool.poe.tasks.install]
+cmd  = "sh -c 'poetry lock && poetry install'"
+help = "Install all dependency groups (dev + test)"
+
+[tool.poe.tasks.autoflake]
+cmd  = "poetry run autoflake ."
+help = "Remove unused imports and variables"
+
+[tool.poe.tasks.isort]
+cmd  = "poetry run isort ."
+help = "Sort imports"
+
+[tool.poe.tasks.black]
+cmd  = "poetry run black ."
+help = "Format with black"
+
+# Calculate the next version using semantic-release
+[tool.poe.tasks.semver]
+shell = """
+if [ $pre ]
+then
+  command=(semantic-release -c releaserc.toml version --${label} --prerelease-token ${token} --as-prerelease --print)
+else
+  command=(semantic-release -c releaserc.toml version --${label} --print)
+fi
+result="$("${command[@]}" 2>/dev/null)"
+printf "\n\t\\033[1;96m%s\\033[0m\n\n" "$(echo ${command[@]})"
+printf "\\033[1mSemantic version:\\033[0m \\033[32m%s\\033[0m\n\n" "${result}"
+"""
+help = "Preview the next semantic version. Pass a bump label (patch/minor/major) or use defaults."
+
+    [[tool.poe.tasks.semver.args]]
+    name = "label"
+    help = "Version bump label (patch, minor, major)"
+    default = "patch"
+    positional = true
+
+    [[tool.poe.tasks.semver.args]]
+    name = "pre"
+    help = "Produce a pre-release version"
+    type = "boolean"
+
+    [[tool.poe.tasks.semver.args]]
+    name = "token"
+    options = ["-t", "--prerelease-token"]
+    help = "Pre-release token (e.g. rc, alpha, beta)"
+    default = "rc"

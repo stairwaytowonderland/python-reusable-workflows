@@ -1,0 +1,99 @@
+# python-semantic-release configuration
+#
+# Docs: https://python-semantic-release.readthedocs.io/en/latest/configuration/configuration.html
+#
+# Note: PSR uses TOML (or JSON) for configuration — YAML is not supported.
+# This file is the dedicated PSR config equivalent of a .releaserc file.
+# Reference it from the GitHub Actions workflow via: config_file: releaserc.toml
+#
+# Root key for a standalone TOML config file is [semantic_release]
+# (vs [tool.semantic_release] when inside pyproject.toml).
+
+# ---------------------------------------------------------------------------- #
+# Core:
+# ---------------------------------------------------------------------------- #
+
+[semantic_release]
+
+# Version stamping is handled by poetry-dynamic-versioning, which reads the git
+# tag created by PSR at build time. No version_toml or build_command is needed
+# here — PSR's build step runs BEFORE the tag is created, so poetry-dynamic-
+# versioning would see the old tag. Build separately after PSR creates the tag
+# (see the CI workflow: `build: "false"` on the PSR action, then `poetry build`).
+
+# Commit message written by PSR when bumping the version.
+# [skip ci] prevents the release commit from re-triggering the workflow.
+commit_message = "chore(release): v{version} [skip ci]"
+
+# Use the Conventional Commits parser (default in PSR v10).
+# https://python-semantic-release.readthedocs.io/en/latest/concepts/commit_parsing.html
+commit_parser = "conventional"
+
+# ---------------------------------------------------------------------------- #
+# Commit Parser Options:
+# ---------------------------------------------------------------------------- #
+
+# https://python-semantic-release.readthedocs.io/en/latest/configuration/configuration.html#commit-parser-options
+[semantic_release.commit_parser_options]
+allowed_tags = [
+    "build", "chore", "ci", "docs",
+    "feat", "fix", "perf", "refactor",
+    "style", "test",
+]
+minor_tags = ["feat"]
+patch_tags  = ["fix", "perf", "refactor"]
+
+# ---------------------------------------------------------------------------- #
+# Remote (GitHub):
+# ---------------------------------------------------------------------------- #
+
+# https://python-semantic-release.readthedocs.io/en/latest/configuration/configuration.html#remote
+[semantic_release.remote]
+type = "github"
+
+[semantic_release.remote.token]
+# GITHUB_TOKEN is injected automatically by GitHub Actions.
+env = "GITHUB_TOKEN"
+
+# ---------------------------------------------------------------------------- #
+# Changelog:
+# ---------------------------------------------------------------------------- #
+
+# https://python-semantic-release.readthedocs.io/en/latest/configuration/configuration.html#changelog
+[semantic_release.changelog]
+
+# "update" mode inserts new entries at the insertion_flag rather than rewriting
+# the whole file. Use "init" on a brand-new project without an existing CHANGELOG.
+mode = "update"
+
+# Patterns that match these commit messages are excluded from the changelog.
+exclude_commit_patterns = [
+    "chore(?:\\([^)]*?\\))?: .+",
+    "style(?:\\([^)]*?\\))?: .+",
+    "test(?:\\([^)]*?\\))?: .+",
+    "Merged? .*",
+]
+
+# ---------------------------------------------------------------------------- #
+# Branches:
+# ---------------------------------------------------------------------------- #
+
+# https://python-semantic-release.readthedocs.io/en/latest/concepts/multibranch_releases.html
+[semantic_release.branches.main]
+match = "(main|master)"
+prerelease = false
+
+[semantic_release.branches.rc]
+match = "^(release|rc)/.+"
+prerelease = true
+prerelease_token = "rc"
+
+[semantic_release.branches.beta]
+match = "^(beta|dev)/.+"
+prerelease = true
+prerelease_token = "beta"
+
+[semantic_release.branches.test]
+match = "^test/.+"
+prerelease = true
+prerelease_token = "alpha"
