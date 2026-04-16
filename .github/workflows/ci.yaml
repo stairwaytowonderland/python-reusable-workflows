@@ -1,4 +1,4 @@
-name: Trigger Release
+name: Continuous Integration
 
 on:
   # push:
