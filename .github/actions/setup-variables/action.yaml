@@ -1,0 +1,45 @@
+# action.yaml for Setup composite action to normalize python-version and requirements
+name: "Setup Python Variables"
+description: "Normalizes python-version and requirements inputs for downstream jobs."
+runs:
+  using: "composite"
+  steps:
+    - name: Normalize python-version
+      id: normalize-python-version
+      shell: bash
+      run: |
+        # Use input or fallback to default
+        if [[ -n "${{ inputs.python-version }}" ]]; then
+          echo "python-version=${{ inputs.python-version }}" >> $GITHUB_OUTPUT
+        else
+          echo "python-version=${DEFAULT_PYTHON_VERSION-}" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Normalize requirements
+      id: normalize-requirements
+      shell: bash
+      run: |
+        # Use input or fallback to default
+        if [[ -n "${{ inputs.requirements }}" ]]; then
+          echo "requirements=${{ inputs.requirements }}" >> $GITHUB_OUTPUT
+        else
+          echo "requirements=${REQUIREMENTS-}" >> $GITHUB_OUTPUT
+        fi
+
+inputs:
+  python-version:
+    description: "Python version(s) to use."
+    required: false
+    default: ""
+  requirements:
+    description: "Path to requirements.txt."
+    required: false
+    default: ""
+
+outputs:
+  python-version:
+    description: "Normalized python version."
+    value: ${{ steps.normalize-python-version.outputs.python-version }}
+  requirements:
+    description: "Normalized requirements path."
+    value: ${{ steps.normalize-requirements.outputs.requirements }}

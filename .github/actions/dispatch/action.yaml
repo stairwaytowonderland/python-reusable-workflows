@@ -18,10 +18,6 @@ inputs:
     description: "Tag associated with the workflow dispatch event"
     required: false
     default: ${{ github.ref }}
-  repository:
-    description: "Owner/repo to dispatch against. Defaults to the current repository."
-    required: false
-    default: ${{ github.repository }}
   provenance:
     description: "Whether to generate a SLSA build provenance attestation."
     required: false
@@ -41,10 +37,6 @@ inputs:
         extra-key=extra-value
     required: false
     default: ""
-  token:
-    description: "GitHub token with actions:write permission"
-    required: false
-    default: ${{ github.token }}
 
 runs:
   using: composite
@@ -71,9 +63,9 @@ runs:
           --ref "$TAG" \
           "${field[@]}"
       env:
-        GH_TOKEN: ${{ inputs.token }}
+        GH_TOKEN: ${{ github.token }}
         WORKFLOW: ${{ inputs.workflow }}
-        REPOSITORY: ${{ inputs.repository }}
+        REPOSITORY: ${{ github.repository }}
         TAG: ${{ inputs.tag }}
         PROVENANCE: ${{ inputs.provenance }}
         PYTHON_VERSION: ${{ inputs.python-version }}

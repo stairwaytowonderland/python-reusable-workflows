@@ -29,55 +29,18 @@ jobs:
       python-versions: ${{ steps.set-matrix.outputs.python-versions }}
       python-version-count: ${{ steps.set-matrix.outputs.python-version-count }}
     steps:
-      - name: Set Python version matrix
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Action | Prepare matrix
         id: set-matrix
-        env:
-          DEFAULT_VERSIONS: ${{ env.PYTHON_VERSION }}
-          INPUT_VERSIONS: ${{ inputs.python-version }}
-        run: |
-          raw="${INPUT_VERSIONS:-$DEFAULT_VERSIONS}"
-          json=$(echo "$raw" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | jq -Rc '[.,inputs]' | jq -sc 'add')
-          echo "python-versions=$json" >> "$GITHUB_OUTPUT"
-          echo "python-version-count=$(echo "$json" | jq 'length')" >> "$GITHUB_OUTPUT"
-
-  test:
-    name: Run tests
-    needs: prepare-matrix
-    if: needs.prepare-matrix.outputs.python-version-count <= 1
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v6
-      - name: Set up Python ${{ inputs.python-version || env.PYTHON_VERSION }}
-        uses: actions/setup-python@v6
+        uses: ./.github/actions/prepare-matrix
         with:
           python-version: ${{ inputs.python-version || env.PYTHON_VERSION }}
 
-      # --- Install dependencies ------------------------------------------------
-      - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install pytest pytest-cov pytest-mock pytest-emoji
-          if [ -n "${{ inputs.requirements }}" ]; then
-            pip install -r ${{ inputs.requirements }}
-          else
-            pip install ".[test]" || true
-          fi
-
-      # -------------------------------------------------------------------------
-      - name: Run tests
-        run: pytest -v --cov=src --cov-report=xml --cov-report=html --cov-report=term || [ "$?" -eq 5 ]
-
-      - name: Upload coverage report as artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: 'coverage-report-${{ inputs.python-version || env.PYTHON_VERSION }}'
-          path: ./htmlcov
-
   test-matrix:
     name: Run matrix tests
-    needs: prepare-matrix
-    if: needs.prepare-matrix.outputs.python-version-count > 1
+    needs: [prepare-matrix]
     runs-on: ubuntu-latest
     strategy:
       matrix:

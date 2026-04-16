@@ -117,20 +117,3 @@ jobs:
           # https://python-semantic-release.readthedocs.io/en/latest/configuration/configuration.html#commit-author
           git_committer_name: 'github-actions'
           git_committer_email: 'actions@users.noreply.github.com'
-
-  # dispatch:
-  #   name: Dispatch publish workflow
-  #   runs-on: ubuntu-latest
-  #   needs: release
-  #   if: needs.release.outputs.released == 'true'
-
-  #   permissions:
-  #     actions: write # trigger workflow_dispatch on publish.yaml
-
-  #   steps:
-  #     - name: Action | Dispatch publish workflow
-  #       uses: ./.github/actions/dispatch
-  #       with:
-  #         workflow: publish.yaml
-  #         tag: ${{ needs.release.outputs.tag }}
-  #         provenance: true
