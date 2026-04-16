@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.2.0 (2026-04-16)
+
+### Features
+
+- Updates
+  ([`e978836`](https://github.com/stairwaytowonderland/python-reusable-workflows/commit/e978836142dc10ee9a1fe65c301e3d4bb322ed15))
+
+
 ## v1.1.0 (2026-04-16)
 
 ### Features
