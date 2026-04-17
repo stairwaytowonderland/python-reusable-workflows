@@ -1,6 +1,7 @@
-# Python CI/CD
+# Python Reusable CI/CD
 
-Reuseable workflows to release a Python app using semantic versioning, create a wheel package artifact, and publish a release.
+Reuseable workflows and actions to release a Python app using semantic versioning, create a wheel package artifact, and
+publish a release.
 
 - **setuptools + setuptools-scm** for portable, backend-agnostic building with dynamic git-tag versioning
 - **Poetry** (optional) for dependency management; used in this project
@@ -18,7 +19,7 @@ Reuseable workflows to release a Python app using semantic versioning, create a 
 │   │   ├── release.yaml        # semantic release — push to main
 │   │   ├── publish.yaml        # build + publish — triggered via workflow_dispatch from ci.yaml
 │   │   ├── test.yaml           # run tests — reusable; called by ci.yaml
-│   │   ├── pre-commit.yaml     # pre-commit checks — pull_request + push to main
+│   │   └── pre-commit.yaml     # pre-commit checks — pull_request
 │   │   └── ci.yaml             # main end-to-end workflow
 │   └── sample_app/
 │       ├── __init__.py
@@ -65,7 +66,7 @@ into the wheel metadata. Nothing else tracks a version number.
 flowchart TD
     A([Developer pushes<br>conventional commits<br>to main]) --> PSR
 
-    subgraph CI ["ci.yaml — workflow_run (Pre-commit + Test on main)"]
+    subgraph CI ["ci.yaml — push to main"]
         subgraph R ["release job → release.yaml"]
             PSR["<b>python-semantic-release</b><br>Analyse commits since last tag<br>Determine next version"] --> C{New version<br>detected?}
             C -- "&nbsp;No&nbsp;" --> Z([No-op — workflow ends])
