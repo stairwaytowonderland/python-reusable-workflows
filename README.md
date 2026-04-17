@@ -65,14 +65,14 @@ into the wheel metadata. Nothing else tracks a version number.
 flowchart TD
     A([Developer pushes<br>conventional commits<br>to main]) --> PSR
 
-    subgraph CI ["ci.yaml — push to main"]
+    subgraph CI ["ci.yaml — workflow_run (Pre-commit + Test on main)"]
         subgraph R ["release job → release.yaml"]
             PSR["<b>python-semantic-release</b><br>Analyse commits since last tag<br>Determine next version"] --> C{New version<br>detected?}
             C -- "&nbsp;No&nbsp;" --> Z([No-op — workflow ends])
             C -- "&nbsp;Yes&nbsp;" --> D["Commit CHANGELOG.md<br>Create git tag v{version}"]
         end
 
-        D --> DISPATCH["<b>dispatch job</b><br>gh workflow run publish.yaml<br>ref: v{version}<br>field: tag=v{version}"]
+        D --> DISPATCH["<b>dispatch job</b><br>dispatch-workflow action<br>publish.yaml @ v{version}<br>provenance: true"]
     end
 
     subgraph P ["publish.yaml — workflow_dispatch / push:tags"]
@@ -127,7 +127,7 @@ curl -X POST \
   -d '{"ref":"v1.2.3","inputs":{"tag":"v1.2.3"}}'
 ```
 
-### One-time PyPI setup
+### One-time PyPI setup (Optional)
 
 To enable the `deploy` job in `publish.yaml`, add a Trusted Publisher on PyPI (no API tokens needed):
 
@@ -156,37 +156,47 @@ poe semver minor
 poe semver patch --pre
 ```
 
-### Simple implementation example
+### Implementation example
 
 ```yaml
 on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   release:
-    uses: {owner}/release-templates/.github/workflows/release.yaml@{ref}
-    secrets: inherit
+    uses: {owner}/python-reusable-workflows/.github/workflows/release.yaml@{ref}
+    permissions:
+      contents: write
     with:
-      # config-file: releaserc.toml      # optional; path to PSR config file relative to repo root
-      # config-file: pyproject.toml      # use [tool.semantic_release] in pyproject.toml instead
+      config-file: releaserc.toml
+    secrets: inherit
 
-  publish:
+  dispatch:
+    runs-on: ubuntu-latest
     needs: release
     if: needs.release.outputs.released == 'true'
-    uses: {owner}/release-templates/.github/workflows/publish.yaml@{ref}
-    with:
-      tag: ${{ needs.release.outputs.tag }}
-      # python-version: "3.12"          # default; override if needed
-      # poetry-version: "latest"        # default; pin to a specific version if needed (e.g. "1.8.5")
-      # requirements: ""                # leave empty for Poetry (default), set to a file path or package specifiers for pip
-      # provenance: true                # enable SLSA build provenance attestation (requires GitHub-hosted runner)
-    secrets: inherit
+    permissions:
+      actions: write    # required to trigger workflow_dispatch
+    steps:
+      - name: Action | Dispatch publish workflow
+        uses: {owner}/python-reusable-workflows/.github/actions/dispatch-workflow@{ref}
+        with:
+          workflow: publish.yaml
+          tag: ${{ needs.release.outputs.tag }}
+          provenance: true
 ```
 
 > [!NOTE]
-> This single file is all that's needed for the automated PSR path. The `release` job exposes `released` and `tag` outputs;
-> the `publish` job consumes them directly — no cross-repo dispatch is attempted.
+> **Why not rely on `publish.yaml`'s `on: push: tags:` trigger?**
+>
+> GitHub blocks `GITHUB_TOKEN`-authored pushes from firing further `push`/`create` events — a safeguard
+> against loops. Since PSR creates its tag using `GITHUB_TOKEN`, the tag push is invisible to `push: tags`
+> listeners. `workflow_dispatch` is the explicit exception: `GITHUB_TOKEN` *is* allowed to trigger it.
+> ([GitHub docs: Triggering a workflow from a workflow](https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow#triggering-a-workflow-from-a-workflow))
 
 `secrets: inherit` passes the caller's `GITHUB_TOKEN` (and any other repo secrets) into each reusable workflow.
 
@@ -205,94 +215,27 @@ tasks to use these reusable workflows.
 
 ### What callers must supply
 
-| Item                                            | Required         | Notes                                                                                                                                        |
-| ----------------------------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `releaserc.toml`                                | No — optional    | If absent, PSR uses its built-in defaults. Add your own to override commit parser options, branch patterns, or changelog settings.           |
-| `pyproject.toml` with `[build-system]`          | Yes              | `python -m build` needs a build backend declared for the caller's project                                                                    |
-| `poetry.lock`                                   | No — recommended | Used when present for reproducible installs. If absent, `poetry lock` generates it at build time. Not used when `requirements` is set.       |
-| `.github/workflows/publish.yaml` (thin wrapper) | No — see below   | Only needed for manual `workflow_dispatch` triggers; the `release` → `publish` chain is handled via `needs:` outputs in the calling workflow |
-
-#### Optional: reusable test workflow
-
-The `test.yaml` supports `workflow_call`, so callers can run their test suite as part of any pipeline:
-
-```yaml
-jobs:
-  test:
-    uses: {owner}/release-templates/.github/workflows/test.yaml@{ref}
-    permissions:
-      contents: read
-    with:
-      # python-version: "3.12"             # default; single version
-      # python-version: "3.10, 3.11, 3.12" # comma-separated for matrix run
-      # requirements: ""                   # leave empty to install from pyproject.toml [test] extras
-    secrets: inherit
-```
-
-### Alternative caller workflow implementations
-
-The simple example above chains `release` → `publish` via `needs:` inside a single workflow file. This works, but it means
-the caller workflow must hold `contents: write`, `id-token: write`, and `attestations: write` all at once — even though
-`publish.yaml` only needs those elevated permissions for its own jobs.
-
-The dispatch pattern separates them: `release.yaml` runs with only `contents: write`, then a dedicated `dispatch` job
-fires `publish.yaml` as an independent `workflow_dispatch` run. `publish.yaml` then acquires its own elevated permissions
-in its own context. This is the approach used in this repo's `ci.yaml`.
-
-```yaml
-on:
-  push:
-    branches: [main]
-
-permissions:
-  contents: read
-
-jobs:
-  release:
-    uses: {owner}/release-templates/.github/workflows/release.yaml@{ref}
-    permissions:
-      contents: write
-    with:
-      config-file: releaserc.toml
-    secrets: inherit
-
-  dispatch:
-    runs-on: ubuntu-latest
-    needs: release
-    if: needs.release.outputs.released == 'true'
-    permissions:
-      actions: write    # required to trigger workflow_dispatch
-    steps:
-      - name: Action | Dispatch publish workflow
-        run: |
-          gh workflow run publish.yaml \
-            --repo ${{ github.repository }} \
-            --ref ${{ needs.release.outputs.tag }} \
-            --field tag=${{ needs.release.outputs.tag }} \
-            --field provenance=true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-```
-
-> [!NOTE]
-> **Why not rely on `publish.yaml`'s `on: push: tags:` trigger?**
->
-> GitHub blocks `GITHUB_TOKEN`-authored pushes from firing further `push`/`create` events — a safeguard
-> against loops. Since PSR creates its tag using `GITHUB_TOKEN`, the tag push is invisible to `push: tags`
-> listeners. `workflow_dispatch` is the explicit exception: `GITHUB_TOKEN` *is* allowed to trigger it.
-> ([GitHub docs: Triggering a workflow from a workflow](https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow#triggering-a-workflow-from-a-workflow))
-
-The tradeoff: the dispatched `publish.yaml` run appears as a separate, standalone workflow run in the Actions UI rather
-than as a job nested under the caller workflow. Use the `needs:` chain if you prefer everything in one run; use dispatch
-if you want least-privilege separation.
+| Item                                            | Required       | Notes                                                                                                                                                         |
+| ----------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pyproject.toml` with `[build-system]`          | Yes            | `python -m build` needs a build backend declared for the caller's project                                                                                     |
+| `releaserc.toml`                                | No             | If absent, PSR uses its built-in defaults. Add your own to override commit parser options, branch patterns, or changelog settings.                            |
+| `poetry.lock`                                   | No             | Used when present (if Poetry is enabled) for reproducible installs. If absent, `poetry lock` generates it at build time. Not used when `requirements` is set. |
+| `.github/workflows/publish.yaml` (thin wrapper) | No — see below | Only needed for manual `workflow_dispatch` triggers; the `release` → `publish` chain is handled via `needs:` outputs in the calling workflow                  |
 
 ## Reusable workflows reference
 
-The `release.yaml`, `publish.yaml`, and `test.yaml` all support `workflow_call`.
+The `release.yaml`, `publish.yaml`, `test.yaml`, and `pre-commit.yaml` all support `workflow_call`.
 
 ### `release.yaml`
 
 Runs python-semantic-release, commits the changelog, creates the git tag, and (optionally) a GitHub Release.
+
+**Triggers**
+
+| Trigger             | Details                                                                                                          |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `workflow_call`     | Called from a parent workflow via `uses:`; exposes `released` and `tag` outputs                                  |
+| `workflow_dispatch` | Manual trigger from the Actions UI; accepts `force-bump` (auto / patch / minor / major) and `config-file` inputs |
 
 **Outputs**
 
@@ -313,12 +256,33 @@ Runs python-semantic-release, commits the changelog, creates the git tag, and (o
 | ----------------- | ------------------------------------- |
 | `contents: write` | Push changelog commit, create git tag |
 
+**Usage example**
+
+```yaml
+jobs:
+  release:
+    uses: {owner}/python-reusable-workflows/.github/workflows/release.yaml@{ref}
+    permissions:
+      contents: write
+    with:
+      config-file: releaserc.toml
+    secrets: inherit
+```
+
 ---
 
 ### `publish.yaml`
 
 Checks out the tag, builds the wheel and sdist, generates a SLSA provenance attestation, and uploads the artifacts to a
 GitHub Release.
+
+**Triggers**
+
+| Trigger             | Details                                                                                                                                   |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `push: tags: v*`    | Fires when a `v*` tag is pushed with personal credentials; tags created by `GITHUB_TOKEN` (e.g. by PSR) do **not** trigger this           |
+| `workflow_call`     | Called from a parent workflow via `uses:`                                                                                                 |
+| `workflow_dispatch` | Manual trigger from the Actions UI; accepts `tag`, `python-version`, `poetry-version`, `requirements`, `poetry-as-fallback`, `provenance` |
 
 **Inputs**
 
@@ -348,11 +312,37 @@ GitHub Release.
 | `id-token: write`     | OIDC token for provenance signing (only when `provenance` is enabled)  |
 | `attestations: write` | Persist the provenance attestation (only when `provenance` is enabled) |
 
+**Usage example**
+
+```yaml
+jobs:
+  publish:
+    uses: {owner}/python-reusable-workflows/.github/workflows/publish.yaml@{ref}
+    permissions:
+      contents: write
+      id-token: write       # only if provenance: true
+      attestations: write   # only if provenance: true
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+      # python-version: "3.12"
+      # poetry-version: "latest"
+      # requirements: ""
+      # provenance: true
+    secrets: inherit
+```
+
 ---
 
 ### `test.yaml`
 
 Runs pytest. Supports a single Python version or a matrix across multiple versions.
+
+**Triggers**
+
+| Trigger         | Details                                   |
+| --------------- | ----------------------------------------- |
+| `pull_request`  | Runs on pull requests targeting `main`    |
+| `workflow_call` | Called from a parent workflow via `uses:` |
 
 **Inputs**
 
@@ -366,6 +356,62 @@ Runs pytest. Supports a single Python version or a matrix across multiple versio
 | Permission       | Reason   |
 | ---------------- | -------- |
 | `contents: read` | Checkout |
+
+**Usage example**
+
+```yaml
+jobs:
+  test:
+    uses: {owner}/python-reusable-workflows/.github/workflows/test.yaml@{ref}
+    permissions:
+      contents: read
+    with:
+      # python-version: "3.12"             # default; single version
+      # python-version: "3.10, 3.11, 3.12" # comma-separated for matrix run
+      # requirements: ""                   # leave empty to install from pyproject.toml [test] extras
+    secrets: inherit
+```
+
+---
+
+### `pre-commit.yaml`
+
+Runs [pre-commit](https://pre-commit.com/) hooks against all files.
+
+**Triggers**
+
+| Trigger             | Details                                                                |
+| ------------------- | ---------------------------------------------------------------------- |
+| `push`              | Runs on every push to any branch                                       |
+| `workflow_call`     | Called from a parent workflow via `uses:`                              |
+| `workflow_dispatch` | Manual trigger from the Actions UI; accepts an optional `config` input |
+
+**Inputs**
+
+| Input    | Type   | Default                     | Required | Description                         |
+| -------- | ------ | --------------------------- | -------- | ----------------------------------- |
+| `config` | string | `".pre-commit-config.yaml"` | No       | Path to the pre-commit config file. |
+
+**Required permissions**
+
+| Permission            | Reason                                |
+| --------------------- | ------------------------------------- |
+| `contents: read`      | Checkout                              |
+| `pull-requests: read` | Read PR metadata for pre-commit hooks |
+
+**Usage example**
+
+```yaml
+jobs:
+  pre-commit:
+    uses: {owner}/python-reusable-workflows/.github/workflows/pre-commit.yaml@{ref}
+    permissions:
+      contents: read
+      pull-requests: read
+    with:
+      # config: .pre-commit-config.yaml    # default
+    secrets: inherit
+```
 
 ## Configuration
 
