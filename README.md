@@ -9,24 +9,43 @@ publish a release.
 - **python-semantic-release** for automated versioning and GitHub Releases
 - **PyPI** (optional) publishing via OIDC Trusted Publishers (no stored API tokens)
 
-## Project layout
+## Project structure
+
+> [!NOTE]
+> `tree -a -F -L 3 -I '.git|.vscode' --gitignore --dirsfirst .`
 
 ```none
-.
-├── src/
+./
 ├── .github/
-│   ├── workflows/
-│   │   ├── release.yaml        # semantic release — push to main
-│   │   ├── publish.yaml        # build + publish — triggered via workflow_dispatch from ci.yaml
-│   │   ├── test.yaml           # run tests — reusable; called by ci.yaml
-│   │   └── pre-commit.yaml     # pre-commit checks — pull_request
-│   │   └── ci.yaml             # main end-to-end workflow
-│   └── sample_app/
-│       ├── __init__.py
-│       └── cli.py              # entry point: `sample-app`
+│   ├── actions/
+│   │   ├── dispatch-workflow/
+│   │   ├── python-matrix/
+│   │   └── setup-variables/
+│   └── workflows/
+│       ├── ci.yaml             # main end-to-end workflow
+│       ├── pre-commit.yaml     # pre-commit checks — pull_request
+│       ├── publish.yaml        # build + publish — triggered via workflow_dispatch from ci.
+│       ├── release.yaml        # semantic release — push to main
+│       └── test.yaml           # run tests — reusable; called by ci.yaml
+├── src/
+│   └── sample_app/
+│       ├── __init__.py
+│       └── cli.py              # entry point: `sample-app`
 ├── tests/
-│   └── test_cli.py
+│   └── cli_test.py
+├── .editorconfig
+├── .gitignore
+├── .markdownlint.json
+├── .pre-commit-ci.yaml
+├── .pre-commit-config.yaml
+├── .prettierignore
+├── .prettierrc
+├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── LICENSE
+├── poetry.lock
 ├── pyproject.toml              # project + build + Poetry + poe + style config
+├── README.md                   # THIS FILE
 └── releaserc.toml              # python-semantic-release config
 ```
 

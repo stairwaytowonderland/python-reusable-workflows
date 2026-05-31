@@ -1,7 +1,7 @@
 # Contributing Guidelines
 
-Thank you for contributing to the [Organization Name] [Repository Type] repository! This guide will help you understand
-our workflow and best practices.
+Thank you for contributing to the [*stairwaytowonderland*](https://github.com/stairwaytowonderland) *python-reusable-workflows*
+repository! This guide will help you understand our workflow and best practices.
 
 ## Workflow
 
@@ -141,13 +141,6 @@ For more details on how to configure and use pre-commit, please refer to the off
 - Add alt text to images: `![Description](image.png)`
 - Use relative links for internal references
 
-### File Organization
-
-- **[folder1]/**: [Description]
-- **[folder2]/**: [Description]
-- **[folder3]/**: [Description]
-- **[folder4]/**: [Description]
-
 ### Naming Conventions
 
 - Use lowercase with hyphens: `client-proposal-template.md`
@@ -156,15 +149,7 @@ For more details on how to configure and use pre-commit, please refer to the off
 
 ## What NOT to Commit
 
-The `.gitignore` file prevents these from being committed:
-
-- [File type 1] (.extension)
-- [File type 2] (.extension)
-- [File type 3] (.extension)
-- [File type 4] (.extension)
-- Large binary files
-
-**[Important Note]**: [Any important notes, e.g., Final deliverables should be stored elsewhere].
+The [`.gitignore`](./.gitignore) file prevents unnecessary files from being committed.
 
 ## Review Checklist
 
